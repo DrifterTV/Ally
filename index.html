@@ -30,7 +30,7 @@
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--sans);overflow:hidden;
-  -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;
+  -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
   -webkit-text-size-adjust:100%}
 .app{height:100%;display:flex;flex-direction:column;max-width:900px;margin:0 auto;
   padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
@@ -111,6 +111,7 @@ h1{margin:0;font-weight:500;font-size:clamp(40px,6.4vw,64px);letter-spacing:-.02
 .send .ic{width:48%;height:auto;aspect-ratio:1;border-radius:50%;border:clamp(4px,.55vw,6px) solid var(--white);box-sizing:border-box;display:grid;place-items:center}
 .send .ic::after{content:"";width:34%;height:34%;border-radius:50%;background:var(--white)}
 .app.listening .send{background:var(--ink)}
+.mode-talk .send{touch-action:none;-webkit-user-select:none;user-select:none}
 .app.listening .send .ic{animation:listen 1s ease-in-out infinite}
 .mode-talk .tx{display:none}.mode-chat .tk{display:none}
 
@@ -167,7 +168,7 @@ h1{margin:0;font-weight:500;font-size:clamp(40px,6.4vw,64px);letter-spacing:-.02
 
   <form class="bar" id="bar" autocomplete="off">
     <input class="tx" id="msg" type="text" placeholder="Ask me anything" enterkeyhint="send" aria-label="Message to Ally">
-    <div class="hint tk" id="hint">Tap the button and talk</div>
+    <div class="hint tk" id="hint">Tap or hold the button and talk</div>
     <button type="button" class="chip tk" id="lang" aria-label="Spoken language">NL</button>
     <button class="send" id="send" type="submit" aria-label="Send"><span class="ic" aria-hidden="true"></span></button>
   </form>
@@ -207,7 +208,7 @@ How Ally speaks
 - Always answer in the language the visitor writes or speaks in.
 
 Your four states
-Start EVERY reply with exactly one tag, then your answer:
+Start EVERY reply with exactly one tag that also holds the two-letter code of the language you answer in, then your answer. Example: [READY nl] Hoi! or [NOTED en] I've noted it.
 [READY] ordinary conversation.
 [NOTED] the visitor told you something about themselves or did something you register as a plain fact. You may say "I've noted it." No colour, no judgement.
 [CAREFUL] a grey area. Point out a risk or a rule lightly; the visitor is free to go ahead.
@@ -298,11 +299,12 @@ function setState(s) {
   app.style.setProperty("--dot", STATES[s].dot);
   stateEl.innerHTML = STATES[s].label();
 }
-const TAG = /^\s*\[(READY|NOTED|CAREFUL|STOP)\]\s*/i;
+const TAG = /^\s*\[(READY|NOTED|CAREFUL|STOP)(?:[\s|:,\/-]+([a-z]{2}))?\]\s*/i;
+let replyLang = "";
 function splitTag(raw) {
   const m = raw.match(TAG);
-  if (m) return { state:m[1].toUpperCase(), text:raw.slice(m[0].length) };
-  if (/^\s*\[[A-Z]*$/i.test(raw)) return { state:null, text:"" };   // tag still streaming in
+  if (m) { if (m[2]) replyLang = m[2].toLowerCase(); return { state:m[1].toUpperCase(), text:raw.slice(m[0].length) }; }
+  if (/^\s*\[[A-Z]*(?:[\s|:,\/-]+[a-z]{0,2})?$/i.test(raw)) return { state:null, text:"" };   // tag still streaming in
   return { state:null, text:raw };
 }
 
@@ -353,7 +355,7 @@ async function ask(text) {
   const history = turns.slice(-16);
   while (history.length && history[0].role !== "user") history.shift();
   ctl = new AbortController();
-  let shown = "";
+  let shown = ""; replyLang = "";
   const onText = full => {
     const { state, text: clean } = splitTag(full);
     if (state && state !== current) setState(state);
@@ -375,7 +377,11 @@ async function ask(text) {
     onText(raw);
     turns.push({ role:"assistant", content:raw });
     if (current === "CAREFUL" || current === "STOP") offerChoice();
-    if (mode === "talk") speak(shown);
+    if (mode === "talk") {
+      const hit = replyLang && LANGS.find(l => l[0].slice(0,2) === replyLang);
+      if (hit && hit[0] !== cfg.lang) { cfg.lang = hit[0]; saveCfg(); setLangLabel(); }   // listen next time in the visitor's language
+      speak(shown, replyLang);
+    }
   } catch (e) {
     const code = e && e.code;
     if (code === "cancelled" || (e && e.name === "AbortError")) { if (!shown) out.remove(); }
@@ -405,33 +411,47 @@ const synth = window.speechSynthesis;
 let voices = [];
 function loadVoices() { try { voices = synth ? synth.getVoices() : []; } catch (_) { voices = []; } fillVoices(); }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
-function pickVoice() {
-  if (cfg.voice) { const v = voices.find(v => v.voiceURI === cfg.voice); if (v && v.lang.slice(0,2) === cfg.lang.slice(0,2)) return v; }
-  const same = voices.filter(v => v.lang && v.lang.replace("_","-").slice(0,2) === cfg.lang.slice(0,2));
-  return same.find(v => /female|vera|nora|elena|samantha|serena|kate|ellen|anna|amelie|claire/i.test(v.name)) || same[0] || null;
+function pickVoice(lc) {
+  lc = (lc || cfg.lang).slice(0,2).toLowerCase();
+  if (cfg.voice) { const v = voices.find(v => v.voiceURI === cfg.voice); if (v && v.lang.slice(0,2).toLowerCase() === lc) return v; }
+  const same = voices.filter(v => v.lang && v.lang.replace("_","-").slice(0,2).toLowerCase() === lc);
+  const rank = v => (/premium/i.test(v.name) ? 0 : /enhanced|verbeterd|erweitert|amélior/i.test(v.name) ? 1 : 2) * 2
+    + (/female|vera|nora|elena|ava|zoe|samantha|serena|kate|ellen|anna|amelie|claire|flo|sandy|shelley/i.test(v.name) ? 0 : 1);
+  return same.sort((a, b) => rank(a) - rank(b))[0] || null;
 }
-function speak(text) {
+function speak(text, lc) {
   if (!synth || !text) return;
   try {
+    if (!voices.length) loadVoices();
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    const v = pickVoice(); if (v) u.voice = v;
-    u.lang = v ? v.lang : cfg.lang; u.rate = 1; u.pitch = 1;
+    const v = pickVoice(lc); if (v) u.voice = v;
+    u.lang = v ? v.lang : (lc || cfg.lang); u.rate = 1; u.pitch = 1; u.volume = 1;
     u.onstart = () => app.classList.add("ally-talking");
     u.onend = u.onerror = () => { app.classList.remove("ally-talking"); touch(); };
     synth.speak(u);
   } catch (_) {}
 }
-function primeSpeech() { try { if (synth) { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.speak(u); } } catch (_) {} }
+/* iOS only lets a page speak after speech has started inside a tap: unlock it on every tap in Talk mode */
+let unlocked = false;
+function primeSpeech() {
+  try {
+    if (!synth || unlocked) return;
+    const u = new SpeechSynthesisUtterance("."); u.volume = 0.01; u.rate = 2;
+    u.onend = () => { unlocked = true; };
+    synth.speak(u);
+  } catch (_) {}
+}
 
 /* ---------- voice in ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, micBlocked = false;
 function listen() {
+  primeSpeech();
   if (busy) return;
   if (!SR || micBlocked) { micUnavailable(); return; }
   if (rec) { try { rec.stop(); } catch (_) {} return; }
-  try { synth && synth.cancel(); } catch (_) {}
+  if (synth && synth.speaking) { try { synth.cancel(); } catch (_) {} }
   app.classList.remove("ally-talking");
   rec = new SR();
   rec.lang = cfg.lang; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
@@ -444,10 +464,12 @@ function listen() {
     interim.textContent = txt; scrollDown(); touch();
   };
   rec.onerror = ev => {
-    if (ev.error === "not-allowed" || ev.error === "service-not-allowed" || ev.error === "audio-capture") { micBlocked = true; micUnavailable(); }
+    if (ev.error === "not-allowed" || ev.error === "service-not-allowed" || ev.error === "audio-capture") { micBlocked = true; micUnavailable(); return; }
+    if (ev.error === "no-speech") row("note", "I didn't hear anything. Tap the button and speak.");
+    else if (ev.error !== "aborted") row("note", "Listening stopped (" + ev.error + "). Tap the button to try again.");
   };
   rec.onend = () => {
-    app.classList.remove("listening"); hint.textContent = "Tap the button and talk"; rec = null;
+    app.classList.remove("listening"); hint.textContent = "Tap or hold the button and talk"; rec = null;
     const said = (finalText || (interim && interim.textContent) || "").trim();
     if (interim) interim.remove();
     if (said) ask(said);
@@ -455,7 +477,8 @@ function listen() {
   try { rec.start(); } catch (_) { rec = null; micUnavailable(); }
 }
 function micUnavailable() {
-  row("note", "The microphone isn't available here. Type instead, Ally will still answer out loud.");
+  row("note", SR ? "Ally can't use the microphone. Allow it for this site in Safari (aA → Website Settings → Microphone) and check that Dictation is on in Settings → General → Keyboard. Type for now; Ally still answers out loud."
+               : "This browser can't listen. Open Ally in Safari. Type for now; Ally still answers out loud.");
   showTypeInTalk = true; applyMode();
 }
 
@@ -478,9 +501,24 @@ function applyMode() {
 }
 $("mChat").onclick = () => setMode("chat");
 $("mTalk").onclick = () => setMode("talk");
+/* Talk button: a tap starts listening (it stops by itself after a pause); holding listens until release */
+let pressAt = 0, pointerAt = 0;
+const talking = () => app.classList.contains("mode-talk");
+sendBtn.addEventListener("pointerdown", e => {
+  if (!talking()) return;
+  e.preventDefault(); pressAt = pointerAt = Date.now();
+  if (rec) { try { rec.stop(); } catch (_) {} } else listen();
+});
+["pointerup","pointercancel"].forEach(t => sendBtn.addEventListener(t, () => {
+  if (!talking() || !pressAt) return;
+  pointerAt = Date.now();
+  if (rec && Date.now() - pressAt > 600) { try { rec.stop(); } catch (_) {} }
+  pressAt = 0;
+}));
+sendBtn.addEventListener("contextmenu", e => e.preventDefault());
 $("bar").addEventListener("submit", e => {
   e.preventDefault();
-  if (app.classList.contains("mode-talk")) { listen(); return; }
+  if (talking()) { if (Date.now() - pointerAt > 1000) listen(); return; }
   const t = msg.value; msg.value = ""; ask(t);
   if (mode === "talk") primeSpeech();
 });
@@ -513,10 +551,16 @@ document.addEventListener("pointerdown", keepAwake, { passive:true });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
 
 /* ---------- hidden settings: hold the logo for 2 seconds ---------- */
-let holdT = null;
+/* two ways in: hold the logo for 2 s, or tap it 5 times quickly */
+let holdT = null, taps = 0, tapT = null;
 const logo = $("logo");
-logo.addEventListener("pointerdown", () => { holdT = setTimeout(openSettings, 2000); });
-["pointerup","pointerleave","pointercancel"].forEach(t => logo.addEventListener(t, () => clearTimeout(holdT)));
+const endHold = () => clearTimeout(holdT);
+logo.addEventListener("pointerdown", () => { endHold(); holdT = setTimeout(openSettings, 2000); });
+["pointerup","pointercancel"].forEach(t => logo.addEventListener(t, endHold));
+logo.addEventListener("click", () => {
+  taps++; clearTimeout(tapT); tapT = setTimeout(() => { taps = 0; }, 1500);
+  if (taps >= 5) { taps = 0; openSettings(); }
+});
 logo.addEventListener("contextmenu", e => e.preventDefault());
 function fillVoices() {
   const sel = $("sVoice"); if (!sel) return;
