@@ -179,6 +179,7 @@ h1{margin:0;font-weight:500;font-size:clamp(40px,6.4vw,64px);letter-spacing:-.02
     <div class="status" id="engineStatus"></div>
     <p>Inside Claude this page uses your own Claude account. Opened directly in Safari (for the iPad), it needs an Anthropic API key. The key is kept only on this device.</p>
     <label>Anthropic API key<input id="sKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+    <label>Workspace ID (only for sk-ant-usr keys, starts with wrkspc_)<input id="sWs" type="text" placeholder="wrkspc_…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
     <label>Model (API mode)<input id="sModel" type="text"></label>
     <label>Reset to start after (seconds idle)<input id="sIdle" type="number" min="20" max="600"></label>
     <label>Voice<select id="sVoice"></select></label>
@@ -227,7 +228,7 @@ const TALK_NOTE = `\n\nThe visitor is SPEAKING to you and your answer will be re
 const GREETING = "Hi, I'm Ally.\nHow can I help you today? Ask me anything, in any language.";
 
 /* ---------- settings (device-local) ---------- */
-const DEFAULTS = { apiKey:"", model:"claude-haiku-5-5", idle:75, lang:"nl-NL", voice:"", persona:"" };
+const DEFAULTS = { apiKey:"", workspace:"", model:"claude-haiku-5-5", idle:75, lang:"nl-NL", voice:"", persona:"" };
 const LANGS = [["nl-NL","NL"],["en-GB","EN"],["de-DE","DE"],["fr-FR","FR"]];
 let cfg = { ...DEFAULTS };
 try { cfg = { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ally.cfg") || "{}") }; } catch (_) {}
@@ -251,12 +252,13 @@ const engineName = () => sample ? "Claude (this account)" : (cfg.apiKey ? "Anthr
 async function streamAPI(system, messages, signal, onText) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method:"POST", signal,
-    headers:{ "content-type":"application/json", "x-api-key":cfg.apiKey, "anthropic-version":"2023-06-01",
-              "anthropic-dangerous-direct-browser-access":"true" },
+    headers:Object.assign({ "content-type":"application/json", "x-api-key":cfg.apiKey, "anthropic-version":"2023-06-01",
+              "anthropic-dangerous-direct-browser-access":"true" }, cfg.workspace ? { "anthropic-workspace-id":cfg.workspace } : {}),
     body: JSON.stringify({ model:cfg.model, max_tokens:400, system, messages, stream:true })
   });
   if (!res.ok) {
     let detail = ""; try { detail = (await res.json()).error?.message || ""; } catch (_) {}
+    if (/workspace/i.test(detail)) throw { code:"workspace", message: detail };
     throw { code: res.status === 401 ? "bad_key" : res.status === 429 ? "rate_limited" : "upstream_error", message: detail };
   }
   const reader = res.body.getReader(), dec = new TextDecoder();
@@ -330,6 +332,7 @@ const ERR = {
   rate_limited:"Ally needs a short breather. Try again in a minute.",
   session_expired:"The Claude session has expired. Sign in again.",
   bad_key:"The API key was refused. Check it in Settings.",
+  workspace:"This key needs a workspace ID. Add it in Settings.",
   refused:"Ally can't answer that one. Ask something else.",
   no_engine:"Ally isn't connected yet. Hold the logo to open Settings."
 };
@@ -524,7 +527,7 @@ function fillVoices() {
 async function openSettings() {
   await sampleReady;
   $("engineStatus").textContent = "Connected to: " + engineName() + (SR ? " · speech input supported" : " · no speech input in this browser");
-  $("sKey").value = cfg.apiKey; $("sModel").value = cfg.model; $("sIdle").value = cfg.idle;
+  $("sKey").value = cfg.apiKey; $("sWs").value = cfg.workspace; $("sModel").value = cfg.model; $("sIdle").value = cfg.idle;
   $("sPersona").value = persona(); fillVoices();
   $("sheet").hidden = false;
 }
@@ -532,6 +535,7 @@ $("sClose").onclick = () => { $("sheet").hidden = true; };
 $("sReset").onclick = () => { $("sPersona").value = PERSONA_DEFAULT; };
 $("sSave").onclick = () => {
   cfg.apiKey = $("sKey").value.trim();
+  cfg.workspace = $("sWs").value.trim();
   cfg.model = $("sModel").value.trim() || DEFAULTS.model;
   cfg.idle = Math.max(20, Math.min(600, Number($("sIdle").value) || DEFAULTS.idle));
   cfg.voice = $("sVoice").value;
