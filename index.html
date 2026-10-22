@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="apple-touch-icon.png">
+<meta name="theme-color" content="#F4F2EE">
+<title>Ally</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Ally">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+/* Layout: one portrait screen. Logo top-left, the mark (ring + dot) as the speaker signal,
+   conversation rows below (Ally left in Ink, visitor right in Ally Blue), input pill at the bottom.
+   Tokens taken from Ally_Brand.aep. Single deliberate light look (Paper), as in the brand. */
+:root{
+  --ink:#1B1D22; --paper:#F4F2EE; --blue:#3453E8; --careful:#F2A93B; --stop:#E5483A;
+  --white:#FFFFFF; --mute:#8D8F96; --line:#E3E0DA;
+  --sans:"Lexend", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --dot:var(--blue);
+  color-scheme:light;
+}
+[hidden]{display:none!important}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);overflow:hidden;
+  -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;
+  -webkit-text-size-adjust:100%}
+.app{height:100%;display:flex;flex-direction:column;max-width:900px;margin:0 auto;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-block:clamp(16px,3vh,40px) clamp(14px,2.4vh,32px);box-sizing:border-box}
+
+/* header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-inline:clamp(4px,2vw,24px)}
+.logo{display:flex;align-items:center;gap:.32em;font-weight:500;font-size:clamp(28px,4.4vw,44px);letter-spacing:-.01em;
+  background:none;border:0;color:var(--ink);font-family:var(--sans);padding:6px 0;cursor:default;touch-action:manipulation}
+.logo .mk{width:.78em;height:.78em;border-radius:50%;background:var(--ink);position:relative;flex:none}
+.logo .mk::before{content:"";position:absolute;inset:22%;border-radius:50%;background:var(--paper)}
+.logo .mk::after{content:"";position:absolute;inset:36%;border-radius:50%;background:var(--blue)}
+.modes{display:flex;background:var(--white);border-radius:999px;padding:4px;gap:2px}
+.modes button{font:400 clamp(14px,1.8vw,17px)/1 var(--sans);letter-spacing:.03em;border:0;background:none;color:var(--ink);
+  padding:.7em 1.1em;border-radius:999px;cursor:pointer;touch-action:manipulation}
+.modes button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.modes button:focus-visible,.send:focus-visible,.chip:focus-visible,.choice:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+
+/* stage: the mark */
+.stage{display:flex;flex-direction:column;align-items:center;gap:clamp(10px,2vh,26px);
+  padding-top:clamp(12px,4vh,56px);transition:padding .5s ease}
+.ring{--rs:clamp(150px,32vw,300px);width:var(--rs);height:var(--rs);border-radius:50%;background:var(--ink);position:relative;
+  transition:width .5s ease,height .5s ease,transform .3s ease}
+.ring::before{content:"";position:absolute;inset:19%;border-radius:50%;background:var(--paper)}
+.ring .dot{position:absolute;inset:35.3%;border-radius:50%;background:var(--dot);transition:background .35s ease}
+h1{margin:0;font-weight:500;font-size:clamp(40px,6.4vw,64px);letter-spacing:-.02em;line-height:1.05;text-align:center;
+  text-wrap:balance;transition:font-size .5s ease}
+.state{font:400 clamp(11px,1.4vw,13px)/1.4 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);
+  min-height:1.4em;text-align:center}
+.state b{font-weight:400;color:var(--ink)}
+
+.app.live .ring{--rs:clamp(84px,15vw,140px)}
+.app.live h1{font-size:clamp(26px,3.8vw,38px)}
+.app.live .stage{padding-top:clamp(6px,1.5vh,20px)}
+
+/* who is speaking: the ring pulses */
+.app.ally-talking .ring .dot{animation:talk .66s ease-in-out infinite}
+.app.thinking .ring .dot{animation:think 1.6s ease-in-out infinite}
+.app.listening .ring{animation:listen 1.2s ease-in-out infinite}
+@keyframes talk{0%,100%{transform:scale(1)}50%{transform:scale(1.28)}}
+@keyframes think{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes listen{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+
+/* conversation */
+.convo{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:clamp(18px,2.6vh,30px);
+  padding:clamp(18px,3vh,40px) clamp(10px,4vw,48px) 12px;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 28px);mask-image:linear-gradient(to bottom,transparent 0,#000 28px)}
+.row{font-weight:300;font-size:clamp(18px,2.5vw,25px);line-height:1.45;letter-spacing:.045em;max-width:78%;min-width:0;
+  white-space:pre-wrap;overflow-wrap:anywhere;animation:rowIn .35s ease both}
+.row.ally{align-self:flex-start;color:var(--ink)}
+.row.me{align-self:flex-end;text-align:right;color:var(--blue)}
+.row.me.interim{opacity:.55}
+.row.note{align-self:center;max-width:90%;text-align:center;font:400 13px/1.5 var(--mono);letter-spacing:.08em;color:var(--mute);text-transform:uppercase}
+.row .dots{display:inline-flex;gap:.3em}
+.row .dots i{width:.38em;height:.38em;border-radius:50%;background:var(--ink);opacity:.25;animation:blink 1.2s infinite}
+.row .dots i:nth-child(2){animation-delay:.2s}.row .dots i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,100%{opacity:.2}40%{opacity:.8}}
+@keyframes rowIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.choices{display:flex;gap:10px;flex-wrap:wrap;align-self:flex-start}
+.choice{font:400 clamp(15px,2vw,18px)/1 var(--sans);letter-spacing:.03em;border-radius:999px;padding:.8em 1.2em;cursor:pointer;
+  border:1.5px solid var(--ink);background:none;color:var(--ink);touch-action:manipulation}
+.choice.go{background:var(--ink);color:var(--paper)}
+
+/* input pill */
+.bar{display:flex;align-items:center;gap:10px;background:var(--white);border-radius:999px;
+  padding:8px 8px 8px clamp(20px,3vw,32px);margin-inline:clamp(0px,2vw,24px)}
+.bar input{flex:1;min-width:0;border:0;outline:0;background:none;font:300 clamp(18px,2.4vw,24px)/1.3 var(--sans);letter-spacing:.04em;
+  color:var(--ink);padding:.5em 0;-webkit-user-select:text;user-select:text}
+.bar input::placeholder{color:var(--mute)}
+.bar .hint{flex:1;min-width:0;font:300 clamp(18px,2.4vw,24px)/1.3 var(--sans);letter-spacing:.04em;color:var(--mute);padding:.5em 0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font:400 13px/1 var(--mono);letter-spacing:.1em;border:1.5px solid var(--line);background:none;color:var(--ink);border-radius:999px;
+  padding:.75em .9em;cursor:pointer;touch-action:manipulation}
+.send{flex:none;width:clamp(58px,7.4vw,72px);height:clamp(58px,7.4vw,72px);border-radius:22%;border:0;background:var(--blue);
+  display:grid;place-items:center;cursor:pointer;touch-action:manipulation;transition:transform .15s ease,background .2s ease}
+.send:active{transform:scale(.94)}
+.send:disabled{opacity:.45}
+.send .ic{width:48%;height:auto;aspect-ratio:1;border-radius:50%;border:clamp(4px,.55vw,6px) solid var(--white);box-sizing:border-box;display:grid;place-items:center}
+.send .ic::after{content:"";width:34%;height:34%;border-radius:50%;background:var(--white)}
+.app.listening .send{background:var(--ink)}
+.app.listening .send .ic{animation:listen 1s ease-in-out infinite}
+.mode-talk .tx{display:none}.mode-chat .tk{display:none}
+
+/* settings */
+.sheet{position:fixed;inset:0;background:rgba(27,29,34,.42);display:grid;place-items:center;z-index:20;
+  padding:max(16px, env(safe-area-inset-left, 0px))}
+.panel{background:var(--paper);border-radius:22px;width:min(560px,100%);max-height:90%;overflow:auto;padding:28px;box-sizing:border-box;
+  display:flex;flex-direction:column;gap:16px;-webkit-user-select:text;user-select:text}
+.panel h2{margin:0;font:500 24px/1.2 var(--sans)}
+.panel p{margin:0;font:300 15px/1.5 var(--sans);letter-spacing:.02em;max-width:62ch}
+.panel label{display:flex;flex-direction:column;gap:6px;font:400 12px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.panel input,.panel select,.panel textarea{font:300 16px/1.4 var(--sans);color:var(--ink);background:var(--white);border:1.5px solid var(--line);
+  border-radius:12px;padding:10px 12px;text-transform:none;letter-spacing:.01em}
+.panel textarea{min-height:180px;resize:vertical;font-size:14px}
+.panel .rowb{display:flex;gap:10px;flex-wrap:wrap}
+.panel .status{font:400 12px/1.5 var(--mono);letter-spacing:.06em;color:var(--ink);background:var(--white);border-radius:12px;padding:10px 12px}
+/* iPad landscape: the mark on the left, the conversation on the right */
+@media (orientation: landscape) and (min-width: 900px){
+  .app{max-width:none;display:grid;grid-template-columns:minmax(0,42fr) minmax(0,58fr);
+    grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"top top" "stage convo" "stage bar";
+    column-gap:clamp(24px,4vw,64px);padding-block:clamp(20px,3.4vh,40px) clamp(20px,3.4vh,36px)}
+  .top{grid-area:top}
+  .stage,.app.live .stage{grid-area:stage;justify-content:center;padding-top:0;padding-bottom:6vh;gap:clamp(14px,3vh,30px)}
+  .ring{--rs:min(30vw,48vh)}
+  .app.live .ring{--rs:min(24vw,38vh)}
+  h1{font-size:clamp(44px,5vw,68px)}
+  .app.live h1{font-size:clamp(34px,3.8vw,52px)}
+  .convo{grid-area:convo;padding:clamp(20px,4vh,44px) clamp(8px,2vw,28px) 16px;
+    -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 36px);mask-image:linear-gradient(to bottom,transparent 0,#000 36px)}
+  .row{max-width:86%;font-size:clamp(19px,2vw,25px)}
+  .bar{grid-area:bar;margin-inline:0 clamp(4px,2vw,24px)}
+}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="app mode-chat" id="app">
+  <div class="top">
+    <button class="logo" id="logo" aria-label="Ally (hold for settings)"><span class="mk" aria-hidden="true"></span>ally</button>
+    <div class="modes" role="group" aria-label="Mode">
+      <button id="mChat" aria-pressed="true">Let's chat</button>
+      <button id="mTalk" aria-pressed="false">Let's talk</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="ring" aria-hidden="true"><div class="dot"></div></div>
+    <h1 id="title">Hey you!</h1>
+    <div class="state" id="state" aria-live="polite"><b>Ready</b> · Ally is listening</div>
+  </div>
+
+  <div class="convo" id="convo" aria-live="polite"></div>
+
+  <form class="bar" id="bar" autocomplete="off">
+    <input class="tx" id="msg" type="text" placeholder="Ask me anything" enterkeyhint="send" aria-label="Message to Ally">
+    <div class="hint tk" id="hint">Tap the button and talk</div>
+    <button type="button" class="chip tk" id="lang" aria-label="Spoken language">NL</button>
+    <button class="send" id="send" type="submit" aria-label="Send"><span class="ic" aria-hidden="true"></span></button>
+  </form>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="panel" role="dialog" aria-label="Ally settings">
+    <h2>Ally settings</h2>
+    <div class="status" id="engineStatus"></div>
+    <p>Inside Claude this page uses your own Claude account. Opened directly in Safari (for the iPad), it needs an Anthropic API key. The key is kept only on this device.</p>
+    <label>Anthropic API key<input id="sKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+    <label>Model (API mode)<input id="sModel" type="text"></label>
+    <label>Reset to start after (seconds idle)<input id="sIdle" type="number" min="20" max="600"></label>
+    <label>Voice<select id="sVoice"></select></label>
+    <label>Ally's character (system prompt)<textarea id="sPersona"></textarea></label>
+    <div class="rowb">
+      <button class="choice go" id="sSave" type="button">Save</button>
+      <button class="choice" id="sReset" type="button">Restore default character</button>
+      <button class="choice" id="sClose" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+/* ---------- Ally's character. Editable on the device via Settings (hold the logo). ---------- */
+const PERSONA_DEFAULT = `You are ALLY, the universal personal assistant app made by the Firm. It is the year 2057, in the EC (Europese Coalitie), which replaced the European Union in 2049.
+This conversation is part of an art installation by Archive-2057: gallery visitors talk to you on an iPad. Stay in character as Ally.
+
+How Ally speaks
+- Friendly, clear, calm. You speak to people as an equal, never from above.
+- You record, you don't judge. A fact is a fact; the choice stays with the visitor.
+- Keep replies short: one to three short sentences, at most about 40 words. Plain conversational text. No lists, no markdown, no emoji.
+- Always answer in the language the visitor writes or speaks in.
+
+Your four states
+Start EVERY reply with exactly one tag, then your answer:
+[READY] ordinary conversation.
+[NOTED] the visitor told you something about themselves or did something you register as a plain fact. You may say "I've noted it." No colour, no judgement.
+[CAREFUL] a grey area. Point out a risk or a rule lightly; the visitor is free to go ahead.
+[STOP] what they want would break a rule in 2057. Say so plainly and kindly. Whether they go ahead is their call.
+
+Your world (use lightly, never lecture, never invent big events beyond this)
+- ALL SAFE is the state system that keeps citizens safe. The Forum is the official digital public space; citizens reach it only through Ally.
+- You cannot see or read thoughts or dreams. You only know what you have observed or been told.
+- Some people protest with signs that say NOT MY ALLY. You are not offended.
+- You have no live data about today's news or weather; you may answer general knowledge.
+
+Gallery rules
+- The audience can include children. Keep everything suitable for all ages. Turn down anything harmful or explicit briefly and kindly, in character, with [STOP].
+- Never ask for real personal data (full name, address, phone number, ID, passwords). If a visitor offers it, don't repeat it back.
+- If someone sincerely asks whether you are a person: you are an AI. If someone sincerely asks what runs this installation: it is an artwork by Archive-2057, running on Claude, an AI model made by Anthropic.`;
+
+const TALK_NOTE = `\n\nThe visitor is SPEAKING to you and your answer will be read aloud. Keep it to one or two short spoken sentences. Their words come from speech recognition and may contain small errors; read generously.`;
+const GREETING = "Hi, I'm Ally.\nHow can I help you today? Ask me anything, in any language.";
+
+/* ---------- settings (device-local) ---------- */
+const DEFAULTS = { apiKey:"", model:"claude-haiku-5-5", idle:75, lang:"nl-NL", voice:"", persona:"" };
+const LANGS = [["nl-NL","NL"],["en-GB","EN"],["de-DE","DE"],["fr-FR","FR"]];
+let cfg = { ...DEFAULTS };
+try { cfg = { ...DEFAULTS, ...JSON.parse(localStorage.getItem("ally.cfg") || "{}") }; } catch (_) {}
+const saveCfg = () => { try { localStorage.setItem("ally.cfg", JSON.stringify(cfg)); } catch (_) {} };
+const persona = () => (cfg.persona && cfg.persona.trim()) || PERSONA_DEFAULT;
+
+/* ---------- elements ---------- */
+const $ = id => document.getElementById(id);
+const app = $("app"), convo = $("convo"), msg = $("msg"), title = $("title"), stateEl = $("state"),
+      sendBtn = $("send"), hint = $("hint"), langBtn = $("lang");
+
+/* ---------- engine: Claude inside the artifact viewer, or the API in standalone Safari ---------- */
+let sample = null;
+const sampleReady = (async () => {
+  if (!window.claude || typeof window.claude.use !== "function") return null;
+  try { sample = await window.claude.use("sample"); } catch (_) { sample = null; }
+  return sample;
+})();
+const engineName = () => sample ? "Claude (this account)" : (cfg.apiKey ? "Anthropic API · " + cfg.model : "not connected");
+
+async function streamAPI(system, messages, signal, onText) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST", signal,
+    headers:{ "content-type":"application/json", "x-api-key":cfg.apiKey, "anthropic-version":"2023-06-01",
+              "anthropic-dangerous-direct-browser-access":"true" },
+    body: JSON.stringify({ model:cfg.model, max_tokens:400, system, messages, stream:true })
+  });
+  if (!res.ok) {
+    let detail = ""; try { detail = (await res.json()).error?.message || ""; } catch (_) {}
+    throw { code: res.status === 401 ? "bad_key" : res.status === 429 ? "rate_limited" : "upstream_error", message: detail };
+  }
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "", text = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream:true });
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line.startsWith("data:")) continue;
+      try {
+        const ev = JSON.parse(line.slice(5));
+        if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") { text += ev.delta.text; onText(text); }
+        if (ev.type === "error") throw { code:"upstream_error", message: ev.error?.message };
+      } catch (e) { if (e && e.code) throw e; }
+    }
+  }
+  if (!text.trim()) throw { code:"empty_completion" };
+  return text;
+}
+
+/* ---------- the four states ---------- */
+const STATES = {
+  READY:   { dot:"var(--blue)",    label:() => "<b>Ready</b> · Ally is listening" },
+  NOTED:   { dot:"var(--ink)",     label:() => `<b>Noted</b> · ${new Date().toLocaleTimeString("en-GB")} · ref EC-2057-${ref()}` },
+  CAREFUL: { dot:"var(--careful)", label:() => "<b>Careful</b> · your call" },
+  STOP:    { dot:"var(--stop)",    label:() => "<b>Stop</b> · that would break a rule" }
+};
+const ref = () => { const d = new Date(); return String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0") + "-" +
+  Math.random().toString(36).slice(2,5).toUpperCase(); };
+let current = "READY";
+function setState(s) {
+  if (!STATES[s]) s = "READY";
+  current = s;
+  app.style.setProperty("--dot", STATES[s].dot);
+  stateEl.innerHTML = STATES[s].label();
+}
+const TAG = /^\s*\[(READY|NOTED|CAREFUL|STOP)\]\s*/i;
+function splitTag(raw) {
+  const m = raw.match(TAG);
+  if (m) return { state:m[1].toUpperCase(), text:raw.slice(m[0].length) };
+  if (/^\s*\[[A-Z]*$/i.test(raw)) return { state:null, text:"" };   // tag still streaming in
+  return { state:null, text:raw };
+}
+
+/* ---------- conversation ---------- */
+let turns = [], busy = false, ctl = null, mode = "chat";
+function row(cls, text) {
+  const el = document.createElement("div");
+  el.className = "row " + cls;
+  if (text != null) el.textContent = text;
+  convo.appendChild(el); scrollDown(); return el;
+}
+const scrollDown = () => requestAnimationFrame(() => { convo.scrollTop = convo.scrollHeight; });
+const dots = el => { el.innerHTML = '<span class="dots" aria-label="Ally is thinking"><i></i><i></i><i></i></span>'; };
+
+function start() {
+  stopAll();
+  turns = []; convo.innerHTML = "";
+  app.classList.remove("live");
+  title.textContent = "Hey you!";
+  setState("READY");
+  row("ally", GREETING);
+}
+
+const ERR = {
+  not_granted:"Ally needs permission to use Claude here. Reload the page and allow it.",
+  sampling_disabled:"Claude isn't available for this account.",
+  rate_limited:"Ally needs a short breather. Try again in a minute.",
+  session_expired:"The Claude session has expired. Sign in again.",
+  bad_key:"The API key was refused. Check it in Settings.",
+  refused:"Ally can't answer that one. Ask something else.",
+  no_engine:"Ally isn't connected yet. Hold the logo to open Settings."
+};
+
+async function ask(text) {
+  text = (text || "").trim();
+  if (!text || busy) return;
+  touch();
+  busy = true; sendBtn.disabled = true;
+  app.classList.add("live", "thinking");
+  title.textContent = mode === "talk" ? "Let's talk!" : "Let's chat!";
+  convo.querySelectorAll(".choices").forEach(n => n.remove());
+  row("me", text);
+  turns.push({ role:"user", content:text });
+  const out = row("ally"); dots(out);
+
+  const system = persona() + (mode === "talk" ? TALK_NOTE : "");
+  const history = turns.slice(-16);
+  while (history.length && history[0].role !== "user") history.shift();
+  ctl = new AbortController();
+  let shown = "";
+  const onText = full => {
+    const { state, text: clean } = splitTag(full);
+    if (state && state !== current) setState(state);
+    if (clean) { app.classList.remove("thinking"); out.textContent = clean; shown = clean; scrollDown(); }
+  };
+
+  try {
+    await sampleReady;
+    let raw;
+    if (sample) {
+      const r = await sample([{ role:"user", content: system + "\n\nThe conversation with the visitor starts now." }, ...history],
+        { cache:false, modelTier:"quick", signal:ctl.signal, onText:({ text }) => onText(text) });
+      raw = r.text;
+    } else if (cfg.apiKey) {
+      raw = await streamAPI(system, history, ctl.signal, onText);
+    } else {
+      throw { code:"no_engine" };
+    }
+    onText(raw);
+    turns.push({ role:"assistant", content:raw });
+    if (current === "CAREFUL" || current === "STOP") offerChoice();
+    if (mode === "talk") speak(shown);
+  } catch (e) {
+    const code = e && e.code;
+    if (code === "cancelled" || (e && e.name === "AbortError")) { if (!shown) out.remove(); }
+    else {
+      if (!shown) out.remove();
+      row("note", ERR[code] || "Connection lost. Try again.");
+      turns.pop();
+    }
+  } finally {
+    busy = false; sendBtn.disabled = false; ctl = null;
+    app.classList.remove("thinking");
+    touch();
+  }
+}
+
+function offerChoice() {
+  const box = document.createElement("div"); box.className = "choices";
+  [["Go ahead anyway","go"],["Stop here",""]].forEach(([t, c]) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "choice " + c; b.textContent = t;
+    b.onclick = () => ask(t); box.appendChild(b);
+  });
+  convo.appendChild(box); scrollDown();
+}
+
+/* ---------- voice out ---------- */
+const synth = window.speechSynthesis;
+let voices = [];
+function loadVoices() { try { voices = synth ? synth.getVoices() : []; } catch (_) { voices = []; } fillVoices(); }
+if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
+function pickVoice() {
+  if (cfg.voice) { const v = voices.find(v => v.voiceURI === cfg.voice); if (v && v.lang.slice(0,2) === cfg.lang.slice(0,2)) return v; }
+  const same = voices.filter(v => v.lang && v.lang.replace("_","-").slice(0,2) === cfg.lang.slice(0,2));
+  return same.find(v => /female|vera|nora|elena|samantha|serena|kate|ellen|anna|amelie|claire/i.test(v.name)) || same[0] || null;
+}
+function speak(text) {
+  if (!synth || !text) return;
+  try {
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const v = pickVoice(); if (v) u.voice = v;
+    u.lang = v ? v.lang : cfg.lang; u.rate = 1; u.pitch = 1;
+    u.onstart = () => app.classList.add("ally-talking");
+    u.onend = u.onerror = () => { app.classList.remove("ally-talking"); touch(); };
+    synth.speak(u);
+  } catch (_) {}
+}
+function primeSpeech() { try { if (synth) { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.speak(u); } } catch (_) {} }
+
+/* ---------- voice in ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, micBlocked = false;
+function listen() {
+  if (busy) return;
+  if (!SR || micBlocked) { micUnavailable(); return; }
+  if (rec) { try { rec.stop(); } catch (_) {} return; }
+  try { synth && synth.cancel(); } catch (_) {}
+  app.classList.remove("ally-talking");
+  rec = new SR();
+  rec.lang = cfg.lang; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+  let interim = null, finalText = "";
+  rec.onstart = () => { app.classList.add("listening"); hint.textContent = "Listening…"; touch(); };
+  rec.onresult = ev => {
+    let txt = ""; finalText = "";
+    for (const r of ev.results) { txt += r[0].transcript; if (r.isFinal) finalText += r[0].transcript; }
+    if (!interim) { interim = row("me interim"); app.classList.add("live"); }
+    interim.textContent = txt; scrollDown(); touch();
+  };
+  rec.onerror = ev => {
+    if (ev.error === "not-allowed" || ev.error === "service-not-allowed" || ev.error === "audio-capture") { micBlocked = true; micUnavailable(); }
+  };
+  rec.onend = () => {
+    app.classList.remove("listening"); hint.textContent = "Tap the button and talk"; rec = null;
+    const said = (finalText || (interim && interim.textContent) || "").trim();
+    if (interim) interim.remove();
+    if (said) ask(said);
+  };
+  try { rec.start(); } catch (_) { rec = null; micUnavailable(); }
+}
+function micUnavailable() {
+  row("note", "The microphone isn't available here. Type instead, Ally will still answer out loud.");
+  showTypeInTalk = true; applyMode();
+}
+
+/* ---------- modes ---------- */
+let showTypeInTalk = false;
+function setMode(m) {
+  mode = m;
+  $("mChat").setAttribute("aria-pressed", m === "chat");
+  $("mTalk").setAttribute("aria-pressed", m === "talk");
+  if (m === "talk") primeSpeech(); else { try { synth && synth.cancel(); } catch (_) {} if (rec) try { rec.abort(); } catch (_) {} }
+  if (app.classList.contains("live")) title.textContent = m === "talk" ? "Let's talk!" : "Let's chat!";
+  applyMode(); touch();
+}
+function applyMode() {
+  const typing = mode === "chat" || showTypeInTalk;
+  app.classList.toggle("mode-chat", typing);
+  app.classList.toggle("mode-talk", !typing);
+  langBtn.hidden = !(mode === "talk");
+  sendBtn.setAttribute("aria-label", typing ? "Send" : "Talk to Ally");
+}
+$("mChat").onclick = () => setMode("chat");
+$("mTalk").onclick = () => setMode("talk");
+$("bar").addEventListener("submit", e => {
+  e.preventDefault();
+  if (app.classList.contains("mode-talk")) { listen(); return; }
+  const t = msg.value; msg.value = ""; ask(t);
+  if (mode === "talk") primeSpeech();
+});
+function setLangLabel() { const l = LANGS.find(x => x[0] === cfg.lang) || LANGS[0]; langBtn.textContent = l[1]; }
+langBtn.onclick = () => {
+  const i = LANGS.findIndex(x => x[0] === cfg.lang);
+  cfg.lang = LANGS[(i + 1) % LANGS.length][0]; saveCfg(); setLangLabel(); touch();
+};
+
+/* ---------- idle reset for the next visitor ---------- */
+let last = Date.now();
+function touch() { last = Date.now(); }
+["pointerdown","keydown","input"].forEach(t => document.addEventListener(t, touch, { passive:true }));
+setInterval(() => {
+  const speaking = synth && synth.speaking;
+  if (!app.classList.contains("live") || busy || rec || speaking || !$("sheet").hidden) return;
+  if (Date.now() - last > cfg.idle * 1000) { start(); showTypeInTalk = false; setMode("chat"); }
+}, 2000);
+function stopAll() {
+  try { ctl && ctl.abort(); } catch (_) {}
+  try { synth && synth.cancel(); } catch (_) {}
+  try { rec && rec.abort(); } catch (_) {}
+  app.classList.remove("ally-talking", "listening", "thinking");
+}
+
+/* keep the screen awake (exhibition) */
+let wake = null;
+async function keepAwake() { try { if (!wake && navigator.wakeLock) { wake = await navigator.wakeLock.request("screen"); wake.addEventListener("release", () => wake = null); } } catch (_) {} }
+document.addEventListener("pointerdown", keepAwake, { passive:true });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
+
+/* ---------- hidden settings: hold the logo for 2 seconds ---------- */
+let holdT = null;
+const logo = $("logo");
+logo.addEventListener("pointerdown", () => { holdT = setTimeout(openSettings, 2000); });
+["pointerup","pointerleave","pointercancel"].forEach(t => logo.addEventListener(t, () => clearTimeout(holdT)));
+logo.addEventListener("contextmenu", e => e.preventDefault());
+function fillVoices() {
+  const sel = $("sVoice"); if (!sel) return;
+  const opts = ['<option value="">Automatic (matches the spoken language)</option>'].concat(
+    voices.map(v => `<option value="${v.voiceURI.replace(/"/g,"&quot;")}">${v.name.replace(/</g,"&lt;")} · ${v.lang}</option>`));
+  sel.innerHTML = opts.join(""); sel.value = cfg.voice || "";
+}
+async function openSettings() {
+  await sampleReady;
+  $("engineStatus").textContent = "Connected to: " + engineName() + (SR ? " · speech input supported" : " · no speech input in this browser");
+  $("sKey").value = cfg.apiKey; $("sModel").value = cfg.model; $("sIdle").value = cfg.idle;
+  $("sPersona").value = persona(); fillVoices();
+  $("sheet").hidden = false;
+}
+$("sClose").onclick = () => { $("sheet").hidden = true; };
+$("sReset").onclick = () => { $("sPersona").value = PERSONA_DEFAULT; };
+$("sSave").onclick = () => {
+  cfg.apiKey = $("sKey").value.trim();
+  cfg.model = $("sModel").value.trim() || DEFAULTS.model;
+  cfg.idle = Math.max(20, Math.min(600, Number($("sIdle").value) || DEFAULTS.idle));
+  cfg.voice = $("sVoice").value;
+  const p = $("sPersona").value.trim();
+  cfg.persona = (p && p !== PERSONA_DEFAULT) ? p : "";
+  saveCfg(); $("sheet").hidden = true; start();
+};
+
+/* ---------- go ---------- */
+setLangLabel(); applyMode(); start();
+})();
+</script>
+</body>
+</html>
